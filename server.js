@@ -21,15 +21,84 @@ const html = `<!DOCTYPE html>
       justify-content: center;
       align-items: center;
     }
+    input {
+      background: #222;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 0.5rem 1rem;
+      font-size: 1.2rem;
+      width: 200px;
+      text-align: center;
+      outline: none;
+      font-family: monospace;
+    }
+    input::placeholder {
+      color: #666;
+    }
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+    #controls {
+      display: flex;
+      gap: 0.5rem;
+    }
+    button {
+      background: #333;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 0.5rem 1rem;
+      font-size: 1.2rem;
+      font-family: monospace;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #444;
+    }
   </style>
 </head>
 <body>
+  <div id="controls">
+    <input id="port" type="number" placeholder="Port" autofocus>
+    <button id="connect">Stream</button>
+  </div>
   <audio id="audio" autoplay loop src="/song.mp3"></audio>
   <script>
+    const input = document.getElementById("port");
+    const btn = document.getElementById("connect");
+    const controls = document.getElementById("controls");
     const audio = document.getElementById("audio");
-    audio.play().catch(() => {
-      document.addEventListener("click", () => audio.play(), { once: true });
+
+    function startAudio() {
+      audio.play().catch(() => {
+        document.addEventListener("click", () => audio.play(), { once: true });
+      });
+    }
+
+    startAudio();
+
+    function connectStream() {
+      const val = input.value.trim();
+      if (!val) return;
+      const port = parseInt(val, 10);
+      if (port < 1 || port > 65535) return;
+
+      audio.pause();
+      audio.src = "/proxy/" + port;
+      audio.loop = false;
+      audio.load();
+      audio.play();
+      controls.style.display = "none";
+    }
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") connectStream();
     });
+    btn.addEventListener("click", connectStream);
   </script>
 </body>
 </html>`;
@@ -45,13 +114,23 @@ const server = http.createServer((req, res) => {
       "Content-Length": stat.size,
     });
     fs.createReadStream(songPath).pipe(res);
-  } else if (req.url === "/logo.png") {
-    const stat = fs.statSync(logoPath);
-    res.writeHead(200, {
-      "Content-Type": "image/png",
-      "Content-Length": stat.size,
+    return;
+  }
+  const proxyMatch = req.url.match(/^\/proxy\/(\d+)$/);
+  if (proxyMatch) {
+    const targetPort = parseInt(proxyMatch[1], 10);
+    const proxyReq = http.get(`http://localhost:${targetPort}/stream`, (proxyRes) => {
+      res.writeHead(200, {
+        "Content-Type": proxyRes.headers["content-type"] || "audio/wav",
+        "Cache-Control": "no-cache",
+        "Transfer-Encoding": "chunked",
+      });
+      proxyRes.pipe(res);
     });
-    fs.createReadStream(logoPath).pipe(res);
+    proxyReq.on("error", () => {
+      res.writeHead(502);
+      res.end();
+    });
   } else {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(html);
