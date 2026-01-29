@@ -66,33 +66,30 @@ const html = `<!DOCTYPE html>
     <input id="port" type="number" placeholder="Port" autofocus>
     <button id="connect">Stream</button>
   </div>
-  <audio id="audio" autoplay loop src="/song.mp3"></audio>
+  <audio id="voiceAudio"></audio>
+  <audio id="musicAudio"></audio>
   <script>
     const input = document.getElementById("port");
     const btn = document.getElementById("connect");
     const controls = document.getElementById("controls");
-    const audio = document.getElementById("audio");
-
-    function startAudio() {
-      audio.play().catch(() => {
-        document.addEventListener("click", () => audio.play(), { once: true });
-      });
-    }
-
-    startAudio();
-
+    const voiceAudio = document.getElementById("voiceAudio");
+    const musicAudio = document.getElementById("musicAudio");
     function connectStream() {
       const val = input.value.trim();
       if (!val) return;
       const port = parseInt(val, 10);
       if (port < 1 || port > 65535) return;
 
-      audio.pause();
-      audio.src = "/proxy/" + port;
-      audio.loop = false;
-      audio.load();
-      audio.play();
       controls.style.display = "none";
+
+      voiceAudio.src = "/proxy/" + port + "/voice";
+      musicAudio.src = "/proxy/" + port + "/music";
+      musicAudio.volume = 0.5;
+
+      voiceAudio.load();
+      musicAudio.load();
+      voiceAudio.play();
+      musicAudio.play();
     }
 
     input.addEventListener("keydown", (e) => {
@@ -103,27 +100,19 @@ const html = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const songPath = path.join(__dirname, "resources", "song.mp3");
 const logoPath = path.join(__dirname, "resources", "logo.png");
 
 const server = http.createServer((req, res) => {
-  if (req.url === "/song.mp3") {
-    const stat = fs.statSync(songPath);
-    res.writeHead(200, {
-      "Content-Type": "audio/mpeg",
-      "Content-Length": stat.size,
-    });
-    fs.createReadStream(songPath).pipe(res);
-    return;
-  }
-  const proxyMatch = req.url.match(/^\/proxy\/(\d+)$/);
+  const proxyMatch = req.url.match(/^\/proxy\/(\d+)\/(\w+)$/);
   if (proxyMatch) {
     const targetPort = parseInt(proxyMatch[1], 10);
-    const proxyReq = http.get(`http://localhost:${targetPort}/stream`, (proxyRes) => {
+    const endpoint = proxyMatch[2];
+    const proxyReq = http.get(`http://localhost:${targetPort}/${endpoint}`, (proxyRes) => {
       res.writeHead(200, {
         "Content-Type": proxyRes.headers["content-type"] || "audio/wav",
         "Cache-Control": "no-cache",
         "Transfer-Encoding": "chunked",
+        "Access-Control-Allow-Origin": "*",
       });
       proxyRes.pipe(res);
     });
